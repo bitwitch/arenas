@@ -23,10 +23,17 @@ void ArenaClear(Arena *arena);
 #include <assert.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 
 #define MEGABYTE (1024 * 1024)
+
+#define ALIGN_DOWN(n, a) ((n) & ~((a) - 1))
+#define ALIGN_UP(n, a) ALIGN_DOWN((n) + (a) - 1, (a))
+#define ALIGN_DOWN_PTR(p, a) ((void *)ALIGN_DOWN((uintptr_t)(p), (a)))
+#define ALIGN_UP_PTR(p, a) ((void *)ALIGN_UP((uintptr_t)(p), (a)))
+
 typedef uint8_t U8;
 typedef uint64_t U64;
 
@@ -54,37 +61,33 @@ U64 arena_pos(Arena *arena) {
 }
 
 void arena_pop_to(Arena *arena, U64 pos) {
+	// TODO(shaw): poisoning
 	arena->cursor = pos;
 }
 
 void arena_release(Arena *arena) {
-	if (arena) free(arena);
+	if (arena) {
+		free(arena->data);
+		free(arena);
+	}
 }
 
-// TODO(shaw): alignment
-void *arena_push(Arena *arena, U64 size, U64 alignment) {
-	(void)alignment;
+void *arena_push(Arena *arena, U64 size, U64 alignment, bool zero) {
+	void *start = arena->data + arena->cursor;
+	void *start_aligned = ALIGN_UP_PTR(start, alignment);
+	U64 pad_bytes = (U64)start_aligned - (U64)start;
+	size += pad_bytes;
 	if (arena->cursor + size > arena->cap) {
 		assert(0);
 	}
-	void *start = arena->data + arena->cursor;
-	memset(arena->data + arena->cursor, 0, size);
-	arena->cursor += size;
-	return start;
-}
-
-// TODO(shaw): alignment
-void *arena_push_no_zero(Arena *arena, U64 size, U64 alignment) {
-	(void)alignment;
-	if (arena->cursor + size > arena->cap) {
-		assert(0);
+	if (zero) {
+		memset(arena->data + arena->cursor, 0, size);
 	}
-	void *start = arena->data + arena->cursor;
 	arena->cursor += size;
-	return start;
+	return start_aligned;
 }
-#define arena_push_n(arena, type, count) (type*)(arena_push(arena, sizeof(type)*count, _Alignof(type)))
-#define arena_push_n_no_zero(arena, type, count) (type*)(arena_push_no_zero(arena, sizeof(type)*count, _Alignof(type)))
+#define arena_push_n(arena, type, count) (type*)(arena_push(arena, sizeof(type)*count, _Alignof(type), true))
+#define arena_push_n_no_zero(arena, type, count) (type*)(arena_push(arena, sizeof(type)*count, _Alignof(type), false))
 
 void arena_clear(Arena *arena) {
 	arena->cursor = 0;
@@ -92,7 +95,9 @@ void arena_clear(Arena *arena) {
 
 
 
-
+typedef struct {
+	U8 a, b, c;
+} TestAlign;
 
 typedef enum {
 	EXPR_INT,
@@ -121,6 +126,11 @@ int main(int argc, char **argv) {
 	Expr *expr1 = arena_push_n(arena, Expr, 1);
 	expr1->kind = EXPR_INT;
 	expr1->int_val = 420;
+
+	TestAlign *test_align = arena_push_n(arena, TestAlign, 1);
+	test_align->a = 0x69;
+	test_align->b = 0x69;
+	test_align->c = 0x69;
 
 	assert(expr0->kind == EXPR_INT);
 	assert(expr0->int_val == 69);
