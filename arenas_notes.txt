@@ -1,0 +1,6 @@
+From Martins:
+"you cannot exactly map reserve/commit concepts from windows to mmap, but as
+long as you're ok relying on overcommit, most of the things will work fine -
+allocate with prot_none, mprotect to r/w when needed, and use madvice with
+MADV_DONTNEED or MADV_FREE to mark memory you won't need depending on what
+behavior your want"

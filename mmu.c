@@ -28,10 +28,6 @@ with very statically-defined deterministic requirements could only use #1.
 #include <string.h>
 #include <stdio.h>
 
-#pragma warning (push, 0)
-#include <windows.h>
-#pragma warning (pop)
-
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
@@ -50,6 +46,14 @@ with very statically-defined deterministic requirements could only use #1.
 typedef uint8_t  U8;
 typedef uint32_t U32;
 typedef uint64_t U64;
+
+#include "os.h"
+#ifdef _MSC_VER
+#include "os_win32.c"
+#else
+#include "os_unix.c"
+#endif
+
 
 typedef struct ArenaChunk ArenaChunk;
 struct ArenaChunk {
@@ -74,16 +78,14 @@ typedef struct {
 } Arena;
 
 Arena *arena_alloc(void) {
-	SYSTEM_INFO system_info;
-	GetSystemInfo(&system_info);
-	U64 page_size = system_info.dwPageSize;
-	
-	Arena *reserved = VirtualAlloc(0, ARENA_RESERVE_SIZE, MEM_RESERVE, PAGE_NOACCESS);
+	U64 page_size = os_get_page_size();
+
+	Arena *reserved = os_memory_reserve(ARENA_RESERVE_SIZE);
 	if (!reserved) return NULL;
 
-	Arena *arena = VirtualAlloc(reserved, page_size, MEM_COMMIT, PAGE_READWRITE);
+	Arena *arena = os_memory_commit(reserved, page_size);
 	if (!arena) {
-		VirtualFree(reserved, 0, MEM_RELEASE);
+		os_memory_release(reserved, ARENA_RESERVE_SIZE);
 		return NULL;
 	}
 
@@ -127,7 +129,8 @@ U64 arena_pos(Arena *arena) {
 
 void arena_pop_to(Arena *arena, U64 pos) {
 	U64 to_decommit = arena->committed - MAX(pos, arena->page_size);
-	VirtualFree((U8*)arena + arena->page_size, to_decommit, MEM_DECOMMIT);
+	os_memory_decommit((U8*)arena + arena->page_size, to_decommit);
+
 	arena->committed -= to_decommit;
 	arena->cursor = MAX(pos, sizeof(Arena));
 
@@ -143,7 +146,7 @@ void arena_pop_to(Arena *arena, U64 pos) {
 
 void arena_clear(Arena *arena) {
 	U64 to_decommit = arena->committed - arena->page_size;
-	VirtualFree((U8*)arena + arena->page_size, to_decommit, MEM_DECOMMIT);
+	os_memory_decommit((U8*)arena + arena->page_size, to_decommit);
 	arena->committed -= to_decommit;
 	arena->cursor = sizeof(Arena);
 
@@ -156,7 +159,7 @@ void arena_release(Arena *arena) {
 			// free(chunk->data);
 			// chunk->data = NULL;
 		// }
-		VirtualFree(arena, 0, MEM_RELEASE);
+		os_memory_release(arena, arena->cap);
 	}
 }
 
@@ -170,7 +173,7 @@ void *arena_push(Arena *arena, U64 size, U64 alignment, bool zero) {
 	// commit more memory if needed
 	if (arena->cursor + size >= arena->committed) {
 		U64 to_commit = ALIGN_UP(arena->cursor + size, arena->page_size);
-		void *ok = VirtualAlloc(arena, to_commit, MEM_COMMIT, PAGE_READWRITE);
+		void *ok = os_memory_commit(arena, to_commit);
 		assert(ok);
 		arena->committed = to_commit;
 	}
