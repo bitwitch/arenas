@@ -141,10 +141,10 @@ void arena_clear(Arena *arena) {
 
 void arena_release(Arena *arena) {
 	if (arena) {
-		// for (ArenaChunk *chunk = arena->first_chunk; chunk; chunk = chunk->next) {
-			// free(chunk->data);
-			// chunk->data = NULL;
-		// }
+		for (ArenaChunk *chunk = arena->first_chunk; chunk; chunk = chunk->next) {
+			free(chunk->data);
+			chunk->data = NULL;
+		}
 		VirtualFree(arena, 0, MEM_RELEASE);
 	}
 }
@@ -243,6 +243,8 @@ int main(int argc, char **argv) {
 	assert(expr4->int_val == 666);
 
 	arena_pop_to(arena, pos);
+
+	expr4->int_val = 9999;
 
 	Expr *expr5 = arena_push_n(arena, Expr, 1);
 	expr5->kind = EXPR_INT;
